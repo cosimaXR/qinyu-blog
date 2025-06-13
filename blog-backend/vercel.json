@@ -1,7 +1,12 @@
 {
+  "functions": {
+    "src/index.js": {
+      "runtime": "node18.x"
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
+      "source": "/(.*)",
       "destination": "/src/index.js"
     }
   ],
