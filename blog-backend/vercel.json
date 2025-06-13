@@ -1,10 +1,4 @@
 {
-  "functions": {
-    "src/index.js": {
-      "launcher": "@vercel/node@2.0.0",
-      "handler": "index.js"
-    }
-  },
   "rewrites": [
     {
       "source": "/(.*)",
