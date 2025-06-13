@@ -2,7 +2,7 @@
 import { translationService } from './translationService.js';
 
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://qinyu-blog-backend-eyef0trjk-qinyus-projects-005a261f.vercel.app' // REPLACE THIS WITH THE URL YOU COPIED FROM VERCEL
+  ? 'https://qinyu-blog-248fj2k0d-qinyus-projects-005a261f.vercel.app' // Updated with your confirmed backend URL
   : 'http://localhost:5000';
 
 export const blogAPI = {
