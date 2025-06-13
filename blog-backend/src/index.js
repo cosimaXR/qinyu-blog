@@ -19,7 +19,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Routes
-app.use('/api/blog', blogRoutes);
+app.use('/blog', blogRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
