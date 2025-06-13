@@ -1,0 +1,25 @@
+{
+  "name": "qinyu-blog-backend",
+  "version": "1.0.0",
+  "description": "Backend service for Qinyu's blog connecting to Notion",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@notionhq/client": "^2.2.14",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.3",
+    "node-cache": "^5.1.2",
+    "notion-to-md": "^3.1.9"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
