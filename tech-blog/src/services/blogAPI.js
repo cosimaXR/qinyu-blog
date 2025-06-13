@@ -1,9 +1,12 @@
 // API service for blog data
 import { translationService } from './translationService.js';
 
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://qinyu-blog-248fj2k0d-qinyus-projects-005a261f.vercel.app' // Updated with your confirmed backend URL
-  : 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_APP_BACKEND_URL || 'http://localhost:5000';
+// Add this line after the API_BASE_URL definition (around line 5)
+console.log('API_BASE_URL being used:', API_BASE_URL);
+console.log('Environment variable:', import.meta.env.VITE_APP_BACKEND_URL);
+console.log('All env vars:', import.meta.env);
+
 
 export const blogAPI = {
   // Get all blog posts with auto-translation and cache-busting
