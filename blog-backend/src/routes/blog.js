@@ -11,7 +11,8 @@ const mockPosts = [
     excerpt: 'Exploring how emerging technologies are reshaping the way we interact...',
     category: 'experience',
     date: '2024-03-15',
-    featured: true
+    featured: true,
+    contentLoaded: false
   },
   {
     id: 'minimalist-design-principles',
@@ -19,22 +20,29 @@ const mockPosts = [
     excerpt: 'Understanding the power of simplicity in creating effective user experiences...',
     category: 'expression',
     date: '2024-03-12',
-    featured: false
+    featured: false,
+    contentLoaded: false
   }
 ];
 
 const mockCategories = ['experience', 'expression', 'experiment'];
 
-// Get all blog posts
+// PERFORMANCE OPTIMIZED: Get all blog posts (fast metadata loading)
 router.get('/posts', async (req, res) => {
   try {
-    // Try Notion first, fallback to mock data
+    const includeContent = req.query.content === 'true';
     let posts, featured, regular;
     
     try {
-      posts = await notionService.getAllPosts();
+      // Use fast metadata loading by default, full content only when requested
+      posts = includeContent 
+        ? await notionService.getAllPosts() 
+        : await notionService.getPostsMetadata();
+        
       featured = posts.filter(post => post.featured);
       regular = posts.filter(post => !post.featured);
+      
+      console.log(`📊 Returned ${posts.length} posts (content: ${includeContent})`);
     } catch (notionError) {
       console.log('Notion API failed, using mock data:', notionError.message);
       posts = mockPosts;
@@ -46,7 +54,8 @@ router.get('/posts', async (req, res) => {
       success: true,
       posts,
       featured,
-      regular
+      regular,
+      contentLoaded: includeContent
     });
   } catch (error) {
     console.error('Error in /posts route:', error);
@@ -57,7 +66,41 @@ router.get('/posts', async (req, res) => {
   }
 });
 
-// Get categories
+// NEW: Get posts metadata only (super fast for homepage)
+router.get('/posts/metadata', async (req, res) => {
+  try {
+    let posts, featured, regular;
+    
+    try {
+      posts = await notionService.getPostsMetadata();
+      featured = posts.filter(post => post.featured);
+      regular = posts.filter(post => !post.featured);
+      
+      console.log(`⚡ Fast metadata: ${posts.length} posts`);
+    } catch (notionError) {
+      console.log('Notion API failed, using mock data:', notionError.message);
+      posts = mockPosts;
+      featured = mockPosts.filter(post => post.featured);
+      regular = mockPosts.filter(post => !post.featured);
+    }
+    
+    res.json({
+      success: true,
+      posts,
+      featured,
+      regular,
+      contentLoaded: false
+    });
+  } catch (error) {
+    console.error('Error in /posts/metadata route:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch posts metadata'
+    });
+  }
+});
+
+// Get categories (uses cached metadata)
 router.get('/categories', async (req, res) => {
   try {
     let categories;
@@ -82,7 +125,7 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// Get a specific post by ID
+// Get a specific post by ID (optimized with concurrent loading)
 router.get('/posts/:id', async (req, res) => {
   try {
     let post;
@@ -114,7 +157,7 @@ router.get('/posts/:id', async (req, res) => {
   }
 });
 
-// Get posts by category
+// Get posts by category (uses fast metadata)
 router.get('/posts/category/:category', async (req, res) => {
   try {
     let posts;
@@ -135,6 +178,39 @@ router.get('/posts/category/:category', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch posts by category'
+    });
+  }
+});
+
+// NEW: Cache management endpoints
+router.get('/cache/stats', async (req, res) => {
+  try {
+    const stats = notionService.getCacheStats();
+    res.json({
+      success: true,
+      cache: stats
+    });
+  } catch (error) {
+    console.error('Error getting cache stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get cache stats'
+    });
+  }
+});
+
+router.post('/cache/clear', async (req, res) => {
+  try {
+    notionService.clearCache();
+    res.json({
+      success: true,
+      message: 'Cache cleared successfully'
+    });
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to clear cache'
     });
   }
 });

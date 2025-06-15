@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useParams, Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
@@ -6,6 +6,7 @@ import { Mail, Github, Twitter, Linkedin, ArrowLeft, Calendar, Clock } from 'luc
 import { blogAPI } from './services/blogAPI.js'
 import CategoryPage from './components/CategoryPage.jsx'
 import NewsletterPage from './components/NewsletterPage.jsx'
+import { PostContentSkeleton, HomePageSkeleton, PostCardSkeleton, FeaturedPostSkeleton } from './components/SkeletonLoader.jsx'
 import './App.css'
 
 // Enhanced markdown to HTML converter
@@ -14,8 +15,8 @@ function parseMarkdown(markdown) {
   
   let html = markdown;
   
-  // Handle images with proper rendering
-  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" class="markdown-image" style="max-width: 100%; height: auto; margin: 20px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" />');
+  // Handle images with proper rendering and lazy loading
+  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" class="markdown-image" style="max-width: 100%; height: auto; margin: 20px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" loading="lazy" />');
   
   // Handle headings
   html = html.replace(/^### (.*$)/gm, '<h3 class="text-xl font-bold mt-5 mb-2 text-[#2c2c2c]">$1</h3>');
@@ -249,14 +250,17 @@ function HomePage({ language, setLanguage }) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  // Function to refresh blog data
+  // PERFORMANCE OPTIMIZED: Function to refresh blog data with metadata first
   const refreshBlogData = async () => {
     try {
       setRefreshing(true)
+      
+      // Get fast metadata first
       const [postsData, categoriesData] = await Promise.all([
         blogAPI.refreshPosts(language),
         blogAPI.getCategories()
       ])
+      
       setBlogData(postsData)
       setCategories(categoriesData)
       setMessage(language === 'en' ? 'Blog refreshed!' : '博客已刷新！')
@@ -274,17 +278,38 @@ function HomePage({ language, setLanguage }) {
     const fetchBlogData = async () => {
       try {
         setLoading(true)
+        console.log('⚡ Loading homepage with fast metadata...');
+        
+        // PERFORMANCE OPTIMIZED: Load metadata first for immediate display
         const [postsData, categoriesData] = await Promise.all([
-          blogAPI.getAllPosts(language),
+          blogAPI.getPostsMetadata(language),
           blogAPI.getCategories()
         ])
+        
         setBlogData(postsData)
         setCategories(categoriesData)
+        setLoading(false)
+        
+        console.log('⚡ Homepage loaded with metadata');
+        
+        // Load full content in background for better UX
+        if (!postsData.contentLoaded) {
+          console.log('🔄 Loading full content in background...');
+          setTimeout(async () => {
+            try {
+              const fullPostsData = await blogAPI.getAllPosts(language);
+              setBlogData(fullPostsData);
+              console.log('📄 Full content loaded in background');
+            } catch (error) {
+              console.error('Background content loading failed:', error);
+            }
+          }, 500);
+        }
+        
       } catch (error) {
         console.error('Error fetching blog data:', error)
-        // Fallback data will be used from API service
-      } finally {
         setLoading(false)
+        // Fallback data will be used from API service
       }
     }
 
@@ -398,11 +423,7 @@ function HomePage({ language, setLanguage }) {
   const regularPosts = blogData.regular
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#f5f5dc] flex items-center justify-center">
-        <div className="text-2xl font-bold">{t.loading}</div>
-      </div>
-    )
+    return <HomePageSkeleton />
   }
 
   return (

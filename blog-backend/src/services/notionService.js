@@ -40,22 +40,26 @@ n2m.setCustomTransformer('image', async (block) => {
   return `![${alt}](${imageUrl})`;
 });
 
-// Initialize cache
-const cache = new NodeCache({ stdTTL: process.env.CACHE_TTL || 3600 });
+// Initialize caches with different TTLs
+const listCache = new NodeCache({ stdTTL: 1800 }); // 30 minutes for post lists
+const contentCache = new NodeCache({ stdTTL: 3600 }); // 1 hour for full content
+const metaCache = new NodeCache({ stdTTL: 7200 }); // 2 hours for metadata only
 
 export const notionService = {
-  // Get all published blog posts
-  async getAllPosts() {
-    const cacheKey = 'all_posts';
-    const cachedPosts = cache.get(cacheKey);
+  // PERFORMANCE OPTIMIZED: Get posts metadata only (fast loading for homepage)
+  async getPostsMetadata() {
+    const cacheKey = 'posts_metadata';
+    const cachedMeta = listCache.get(cacheKey);
     
-    if (cachedPosts) {
-      console.log('Returning cached posts');
-      return cachedPosts;
+    if (cachedMeta) {
+      console.log('📋 Returning cached post metadata');
+      return cachedMeta;
     }
 
     try {
-      console.log('Fetching posts from Notion...');
+      console.log('⚡ Fetching post metadata from Notion...');
+      const startTime = Date.now();
+      
       const response = await notion.databases.query({
         database_id: process.env.NOTION_DATABASE_ID,
         page_size: 100,
@@ -67,95 +71,149 @@ export const notionService = {
         },
         sorts: [
           {
-            property: 'Date',
+            property: 'Date',  
             direction: 'descending'
           }
         ]
       });
 
-      console.log(`Found ${response.results.length} published posts`);
+      // Process metadata only (no content fetching)
+      const posts = response.results.map((page) => {
+        const properties = page.properties;
+        
+        return {
+          id: page.id,
+          title: {
+            en: properties.Title?.title[0]?.plain_text || '',
+            zh: properties['Title (Chinese)']?.rich_text[0]?.plain_text || properties.Title?.title[0]?.plain_text || ''
+          },
+          excerpt: {
+            en: properties.Excerpt?.rich_text[0]?.plain_text || '',
+            zh: properties['Excerpt (Chinese)']?.rich_text[0]?.plain_text || properties.Excerpt?.rich_text[0]?.plain_text || ''
+          },
+          category: properties.Category?.select?.name || 'uncategorized',
+          date: properties.Date?.date?.start || new Date().toISOString().split('T')[0],
+          readTime: properties['Read Time']?.number || 5,
+          featured: properties.Featured?.checkbox || false,
+          meta: {
+            en: `${new Date(properties.Date?.date?.start || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} — ${properties['Read Time']?.number || 5} min read`,
+            zh: `${new Date(properties.Date?.date?.start || Date.now()).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })} — ${properties['Read Time']?.number || 5}分钟阅读`
+          },
+          // Add flag to indicate content needs to be loaded separately
+          contentLoaded: false
+        };
+      });
 
-      const posts = await Promise.all(
-        response.results.map(async (page) => {
-          try {
-            console.log(`Processing post: ${page.id}`);
-            const mdblocks = await n2m.pageToMarkdown(page.id);
-            const markdown = n2m.toMarkdownString(mdblocks);
-            
-            // Extract properties from the page
-            const properties = page.properties;
-            
-            const post = {
-              id: page.id,
-              title: {
-                en: properties.Title?.title[0]?.plain_text || '',
-                zh: properties['Title (Chinese)']?.rich_text[0]?.plain_text || properties.Title?.title[0]?.plain_text || ''
-              },
-              excerpt: {
-                en: properties.Excerpt?.rich_text[0]?.plain_text || '',
-                zh: properties['Excerpt (Chinese)']?.rich_text[0]?.plain_text || properties.Excerpt?.rich_text[0]?.plain_text || ''
-              },
-              content: {
-                en: markdown.parent || markdown,
-                zh: properties['Content (Chinese)']?.rich_text[0]?.plain_text || markdown.parent || markdown
-              },
-              category: properties.Category?.select?.name || 'uncategorized',
-              date: properties.Date?.date?.start || new Date().toISOString().split('T')[0],
-              readTime: properties['Read Time']?.number || 5,
-              featured: properties.Featured?.checkbox || false,
-              meta: {
-                en: `${new Date(properties.Date?.date?.start || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} — ${properties['Read Time']?.number || 5} min read`,
-                zh: `${new Date(properties.Date?.date?.start || Date.now()).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })} — ${properties['Read Time']?.number || 5}分钟阅读`
-              }
-            };
-            
-            console.log(`Successfully processed post: ${post.title.en}`);
-            return post;
-          } catch (error) {
-            console.error(`Error processing post ${page.id}:`, error);
-            // Return a basic post structure if processing fails
-            return {
-              id: page.id,
-              title: { en: 'Error loading post', zh: '加载文章出错' },
-              excerpt: { en: 'This post could not be loaded', zh: '无法加载此文章' },
-              content: { en: 'Content unavailable', zh: '内容不可用' },
-              category: 'uncategorized',
-              date: new Date().toISOString().split('T')[0],
-              readTime: 1,
-              featured: false,
-              meta: { en: 'Error', zh: '错误' }
-            };
-          }
-        })
-      );
+      const loadTime = Date.now() - startTime;
+      console.log(`⚡ Fetched ${posts.length} posts metadata in ${loadTime}ms`);
 
-      console.log(`Successfully processed ${posts.length} posts`);
-
-      // Cache the results
-      cache.set(cacheKey, posts);
+      // Cache the metadata
+      listCache.set(cacheKey, posts);
       
       return posts;
     } catch (error) {
-      console.error('Error fetching posts from Notion:', error);
+      console.error('❌ Error fetching posts metadata from Notion:', error);
       throw error;
     }
   },
 
-  // Get a single post by ID
+  // PERFORMANCE OPTIMIZED: Get all posts with content (for full data when needed)
+  async getAllPosts() {
+    const cacheKey = 'all_posts_with_content';
+    const cachedPosts = contentCache.get(cacheKey);
+    
+    if (cachedPosts) {
+      console.log('📄 Returning cached posts with content');
+      return cachedPosts;
+    }
+
+    try {
+      // First get metadata quickly
+      const postsMetadata = await this.getPostsMetadata();
+      console.log('🔄 Processing content for posts...');
+      
+      const startTime = Date.now();
+      
+      // Process content concurrently with controlled concurrency (max 5 at once)
+      const BATCH_SIZE = 5;
+      const posts = [];
+      
+      for (let i = 0; i < postsMetadata.length; i += BATCH_SIZE) {
+        const batch = postsMetadata.slice(i, i + BATCH_SIZE);
+        
+        const batchResults = await Promise.allSettled(
+          batch.map(async (postMeta) => {
+            try {
+              const mdblocks = await n2m.pageToMarkdown(postMeta.id);
+              const markdown = n2m.toMarkdownString(mdblocks);
+              
+              return {
+                ...postMeta,
+                content: {
+                  en: markdown.parent || markdown,
+                  zh: postMeta.content?.zh || markdown.parent || markdown
+                },
+                contentLoaded: true
+              };
+            } catch (error) {
+              console.error(`⚠️ Error processing content for post ${postMeta.id}:`, error);
+              // Return metadata with error content
+              return {
+                ...postMeta,
+                content: {
+                  en: 'Content could not be loaded',
+                  zh: '内容无法加载'
+                },
+                contentLoaded: false
+              };
+            }
+          })
+        );
+        
+        // Add successful results
+        batchResults.forEach(result => {
+          if (result.status === 'fulfilled') {
+            posts.push(result.value);
+          }
+        });
+        
+        console.log(`📦 Processed batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(postsMetadata.length / BATCH_SIZE)}`);
+      }
+
+      const loadTime = Date.now() - startTime;
+      console.log(`🚀 Processed ${posts.length} posts with content in ${loadTime}ms`);
+
+      // Cache the full posts
+      contentCache.set(cacheKey, posts);
+      
+      return posts;
+    } catch (error) {
+      console.error('❌ Error fetching posts with content from Notion:', error);
+      throw error;
+    }
+  },
+
+  // PERFORMANCE OPTIMIZED: Get single post with content caching
   async getPostById(postId) {
-    const cacheKey = `post_${postId}`;
-    const cachedPost = cache.get(cacheKey);
+    const cacheKey = `post_content_${postId}`;
+    const cachedPost = contentCache.get(cacheKey);
     
     if (cachedPost) {
+      console.log(`📄 Returning cached post: ${postId}`);
       return cachedPost;
     }
 
     try {
-      console.log(`Fetching post ${postId} from Notion...`);
-      const page = await notion.pages.retrieve({ page_id: postId });
-      const mdblocks = await n2m.pageToMarkdown(page.id);
-      const markdown = n2m.toMarkdownString(mdblocks);
+      console.log(`⚡ Fetching post ${postId} from Notion...`);
+      const startTime = Date.now();
       
+      // Fetch page metadata and content concurrently
+      const [page, mdblocks] = await Promise.all([
+        notion.pages.retrieve({ page_id: postId }),
+        n2m.pageToMarkdown(postId)
+      ]);
+      
+      const markdown = n2m.toMarkdownString(mdblocks);
       const properties = page.properties;
       
       const post = {
@@ -178,39 +236,52 @@ export const notionService = {
         featured: properties.Featured?.checkbox || false,
         meta: {
           en: `${new Date(properties.Date?.date?.start || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} — ${properties['Read Time']?.number || 5} min read`,
-          zh: `${new Date(properties.Date?.date?.start || Date.now()).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })} — ${properties['Read Time']?.number || 5}分钟阅读`
-        }
+          zh: `${new Date(properties.Date?.date?.start || Date.now()).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })} — ${properties['Read Time']?.number || 5}분钟阅读`
+        },
+        contentLoaded: true
       };
 
-      // Cache the result
-      cache.set(cacheKey, post);
+      const loadTime = Date.now() - startTime;
+      console.log(`⚡ Fetched post in ${loadTime}ms: ${post.title.en}`);
+
+      // Cache the result with longer TTL for individual posts
+      contentCache.set(cacheKey, post, 7200); // 2 hours for individual posts
       
-      console.log(`Successfully fetched post: ${post.title.en}`);
       return post;
     } catch (error) {
-      console.error('Error fetching post from Notion:', error);
+      console.error(`❌ Error fetching post ${postId} from Notion:`, error);
       throw error;
     }
   },
 
-  // Get posts by category
+  // PERFORMANCE OPTIMIZED: Get posts by category using metadata
   async getPostsByCategory(category) {
-    const allPosts = await this.getAllPosts();
-    return allPosts.filter(post => post.category.toLowerCase() === category.toLowerCase());
+    const allPostsMeta = await this.getPostsMetadata();
+    return allPostsMeta.filter(post => post.category.toLowerCase() === category.toLowerCase());
   },
 
-  // Get all categories
+  // PERFORMANCE OPTIMIZED: Get categories from cached metadata
   async getCategories() {
-    const allPosts = await this.getAllPosts();
-    const categories = [...new Set(allPosts.map(post => post.category))];
+    const cacheKey = 'categories';
+    const cachedCategories = metaCache.get(cacheKey);
     
-    return categories.reduce((acc, category) => {
+    if (cachedCategories) {
+      return cachedCategories;
+    }
+
+    const allPostsMeta = await this.getPostsMetadata();
+    const categories = [...new Set(allPostsMeta.map(post => post.category))];
+    
+    const result = categories.reduce((acc, category) => {
       acc[category.toLowerCase()] = {
         en: category.charAt(0).toUpperCase() + category.slice(1),
         zh: this.getCategoryChineseName(category)
       };
       return acc;
     }, {});
+
+    metaCache.set(cacheKey, result);
+    return result;
   },
 
   // Helper function to get Chinese category names
@@ -223,9 +294,29 @@ export const notionService = {
     return categoryMap[category.toLowerCase()] || category;
   },
 
-  // Clear cache
+  // PERFORMANCE OPTIMIZED: Clear all caches
   clearCache() {
-    cache.flushAll();
-    console.log('Cache cleared');
+    listCache.flushAll();
+    contentCache.flushAll();
+    metaCache.flushAll();
+    console.log('🧹 All caches cleared');
+  },
+
+  // NEW: Get cache statistics
+  getCacheStats() {
+    return {
+      listCache: {
+        keys: listCache.keys().length,
+        stats: listCache.getStats()
+      },
+      contentCache: {
+        keys: contentCache.keys().length,
+        stats: contentCache.getStats()
+      },
+      metaCache: {
+        keys: metaCache.keys().length,
+        stats: metaCache.getStats()
+      }
+    };
   }
 };
