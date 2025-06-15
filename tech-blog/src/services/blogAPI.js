@@ -1,11 +1,18 @@
 // API service for blog data
 import { translationService } from './translationService.js';
 
-const API_BASE_URL = import.meta.env.VITE_APP_BACKEND_URL || 'http://localhost:5000';
-// Add this line after the API_BASE_URL definition (around line 5)
+// Determine the correct backend URL
+const isDevelopment = import.meta.env.DEV || window.location.hostname === 'localhost';
+const API_BASE_URL = isDevelopment 
+  ? 'http://localhost:5000' 
+  : (import.meta.env.VITE_APP_BACKEND_URL || 'http://localhost:5000');
+
+console.log('=== Frontend API Configuration ===');
+console.log('Environment:', isDevelopment ? 'Development' : 'Production');
 console.log('API_BASE_URL being used:', API_BASE_URL);
 console.log('Environment variable:', import.meta.env.VITE_APP_BACKEND_URL);
-console.log('All env vars:', import.meta.env);
+console.log('Dev mode:', import.meta.env.DEV);
+console.log('====================================');
 
 
 export const blogAPI = {

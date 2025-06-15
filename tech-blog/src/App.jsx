@@ -8,6 +8,52 @@ import CategoryPage from './components/CategoryPage.jsx'
 import NewsletterPage from './components/NewsletterPage.jsx'
 import './App.css'
 
+// Enhanced markdown to HTML converter
+function parseMarkdown(markdown) {
+  if (!markdown) return '';
+  
+  let html = markdown;
+  
+  // Handle images with proper rendering
+  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1" class="markdown-image" style="max-width: 100%; height: auto; margin: 20px 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" />');
+  
+  // Handle headings
+  html = html.replace(/^### (.*$)/gm, '<h3 class="text-xl font-bold mt-5 mb-2 text-[#2c2c2c]">$1</h3>');
+  html = html.replace(/^## (.*$)/gm, '<h2 class="text-2xl font-bold mt-6 mb-3 text-[#2c2c2c]">$1</h2>');
+  html = html.replace(/^# (.*$)/gm, '<h1 class="text-3xl font-bold mt-8 mb-4 text-[#2c2c2c]">$1</h1>');
+  
+  // Handle bold and italic
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  
+  // Handle inline code
+  html = html.replace(/`(.*?)`/g, '<code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono border">$1</code>');
+  
+  // Handle code blocks
+  html = html.replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 p-4 rounded-lg border-2 border-gray-300 font-mono text-sm my-4 overflow-x-auto"><code>$1</code></pre>');
+  
+  // Handle blockquotes
+  html = html.replace(/^> (.*$)/gm, '<blockquote class="border-l-4 border-purple-500 pl-4 italic text-gray-700 my-4 bg-purple-50 py-2">$1</blockquote>');
+  
+  // Handle bullet points
+  html = html.replace(/^- (.*$)/gm, '<li class="ml-6 mb-2">$1</li>');
+  html = html.replace(/^\* (.*$)/gm, '<li class="ml-6 mb-2">$1</li>');
+  
+  // Handle numbered lists
+  html = html.replace(/^\d+\.\s(.*$)/gm, '<li class="ml-6 mb-2">$1</li>');
+  
+  // Handle line breaks and paragraphs
+  html = html.replace(/\n\n/g, '</p><p class="mb-4 leading-relaxed text-lg text-[#2c2c2c]">');
+  html = html.replace(/\n/g, '<br>');
+  
+  // Wrap in paragraph tags if not already wrapped
+  if (!html.startsWith('<')) {
+    html = '<p class="mb-4 leading-relaxed text-lg text-[#2c2c2c]">' + html + '</p>';
+  }
+  
+  return html;
+}
+
 // Blog Post Page Component
 function BlogPost({ language }) {
   const { id } = useParams()
@@ -19,32 +65,45 @@ function BlogPost({ language }) {
     const fetchPost = async () => {
       try {
         setLoading(true)
+        setError(null)
+        console.log(`Fetching post with ID: ${id}`);
         const postData = await blogAPI.getPostById(id, language)
         if (postData) {
+          console.log('Post data received:', postData);
           setPost(postData)
         } else {
           setError('Post not found')
         }
       } catch (err) {
+        console.error('Error fetching post:', err);
         setError('Failed to load post')
       } finally {
         setLoading(false)
       }
     }
 
-    fetchPost()
+    if (id) {
+      fetchPost()
+    }
   }, [id, language])
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#f5f5dc] flex items-center justify-center">
-        <div className="text-2xl font-bold">Loading...</div>
+        <div className="text-2xl font-bold">Loading post...</div>
       </div>
     )
   }
 
   if (error || !post) {
-    return <Navigate to="/" replace />
+    return (
+      <div className="min-h-screen bg-[#f5f5dc] flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Post not found</h1>
+          <Link to="/" className="text-purple-600 hover:underline">← Back to Home</Link>
+        </div>
+      </div>
+    )
   }
 
   const content = {
@@ -64,13 +123,6 @@ function BlogPost({ language }) {
   
   return (
     <div className="min-h-screen bg-[#f5f5dc]">
-      {/* Status Message */}
-      {message && (
-        <div className="status-message">
-          {message}
-        </div>
-      )}
-      
       {/* Header */}
       <header className="blog-header p-5 border-b-3 border-[#2c2c2c]">
         <nav className="flex justify-between items-center border-b-3 border-[#2c2c2c]">
@@ -136,55 +188,12 @@ function BlogPost({ language }) {
           {/* Article Content */}
           <div className="article-content p-8 md:p-12">
             <div className="prose prose-lg max-w-none markdown-content">
-              {post.content[language].split('\n').map((paragraph, index) => {
-                // Handle headings
-                if (paragraph.startsWith('# ')) {
-                  return <h1 key={index} className="text-3xl font-bold mt-8 mb-4 text-[#2c2c2c]">{paragraph.slice(2)}</h1>
-                }
-                if (paragraph.startsWith('## ')) {
-                  return <h2 key={index} className="text-2xl font-bold mt-6 mb-3 text-[#2c2c2c]">{paragraph.slice(3)}</h2>
-                }
-                if (paragraph.startsWith('### ')) {
-                  return <h3 key={index} className="text-xl font-bold mt-5 mb-2 text-[#2c2c2c]">{paragraph.slice(4)}</h3>
-                }
-                
-                // Handle bold text
-                const boldText = paragraph.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                
-                // Handle italic text
-                const italicText = boldText.replace(/\*(.*?)\*/g, '<em>$1</em>')
-                
-                // Handle code blocks
-                if (paragraph.startsWith('```')) {
-                  return <div key={index} className="bg-gray-100 p-4 rounded-lg border-2 border-gray-300 font-mono text-sm my-4">{paragraph.slice(3)}</div>
-                }
-                
-                // Handle inline code
-                const codeText = italicText.replace(/`(.*?)`/g, '<code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono">$1</code>')
-                
-                // Handle bullet points
-                if (paragraph.startsWith('- ') || paragraph.startsWith('* ')) {
-                  return <li key={index} className="ml-6 mb-2" dangerouslySetInnerHTML={{ __html: codeText.slice(2) }} />
-                }
-                
-                // Handle numbered lists
-                if (/^\d+\.\s/.test(paragraph)) {
-                  return <li key={index} className="ml-6 mb-2" dangerouslySetInnerHTML={{ __html: codeText.replace(/^\d+\.\s/, '') }} />
-                }
-                
-                // Handle quotes
-                if (paragraph.startsWith('> ')) {
-                  return <blockquote key={index} className="border-l-4 border-purple-500 pl-4 italic text-gray-700 my-4">{paragraph.slice(2)}</blockquote>
-                }
-                
-                // Regular paragraphs
-                if (paragraph.trim()) {
-                  return <p key={index} className="mb-4 leading-relaxed text-lg text-[#2c2c2c]" dangerouslySetInnerHTML={{ __html: codeText }} />
-                }
-                
-                // Empty lines for spacing
-                return <br key={index} />
-              })}
+              <div 
+                dangerouslySetInnerHTML={{ 
+                  __html: parseMarkdown(post.content[language]) 
+                }}
+                className="markdown-content"
+              />
             </div>
           </div>
 
